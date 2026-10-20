@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+:root {
+  --background: #f7f7f8;
+  --foreground: #18181b;
+  --surface: #ffffff;
+  --border: #e4e4e7;
+  --muted: #71717a;
+  --accent: #e5262b;
+  --accent-hover: #c81e23;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b0b0d;
+    --foreground: #ededef;
+    --surface: #151518;
+    --border: #2a2a2f;
+    --muted: #9b9ba3;
+    --accent: #ef3b40;
+    --accent-hover: #f25b5f;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --animate-indeterminate: indeterminate 1.2s ease-in-out infinite;
+
+  @keyframes indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
