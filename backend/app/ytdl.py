@@ -1,5 +1,6 @@
 """Thin service layer around yt-dlp."""
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
@@ -14,7 +15,21 @@ class InvalidUrlError(ValueError):
 
 
 class ExtractionError(RuntimeError):
-    pass
+    @classmethod
+    def from_yt_dlp(cls, e: Exception) -> "ExtractionError":
+        """Turn a yt-dlp error into a message fit to show users."""
+        msg = str(e).removeprefix("ERROR: ")
+        # Drop yt-dlp's "please report this issue..." boilerplate.
+        msg = msg.split("; please report this issue")[0]
+        # Drop the "[youtube] <id>: " prefix.
+        msg = re.sub(r"^\[\w+\] [\w-]+: ", "", msg)
+        return cls(msg)
+
+    @property
+    def transient(self) -> bool:
+        # YouTube occasionally returns no formats for a valid video; a retry
+        # usually works.
+        return "No video formats found" in str(self)
 
 
 def validate_youtube_url(url: str) -> str:
@@ -46,6 +61,7 @@ def _simplify_format(f: dict) -> dict:
 BASE_OPTS = {
     "quiet": True,
     "no_warnings": True,
+    "noprogress": True,  # progress goes through our hooks, not stdout
     "noplaylist": True,
 }
 
@@ -58,7 +74,7 @@ def get_info(url: str) -> dict:
             info = ydl.extract_info(url, download=False)
     except yt_dlp.utils.DownloadError as e:
         # yt-dlp prefixes messages with "ERROR: "; strip it for display.
-        raise ExtractionError(str(e).removeprefix("ERROR: ")) from e
+        raise ExtractionError.from_yt_dlp(e) from e
 
     formats = [
         _simplify_format(f)
@@ -167,7 +183,7 @@ def download(
             parts["count"] = max(len(info.get("requested_formats") or []), 1)
             ydl.process_ie_result(info, download=True)
     except yt_dlp.utils.DownloadError as e:
-        raise ExtractionError(str(e).removeprefix("ERROR: ")) from e
+        raise ExtractionError.from_yt_dlp(e) from e
 
     files = [p for p in out_dir.iterdir() if p.is_file() and not p.name.endswith(".part")]
     if not files:

@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
+from rq.worker import Worker
 
 from . import config, tasks, ytdl
 from .broker import download_queue, redis_conn
@@ -76,6 +77,10 @@ def rate_limit(request: Request, bucket: str, limit: int, window: int) -> None:
         raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
 
 
+def worker_count() -> int:
+    return Worker.count(connection=redis_conn, queue=download_queue)
+
+
 def fetch_job(job_id: str) -> Job:
     try:
         uuid.UUID(job_id)
@@ -105,7 +110,7 @@ def job_state(job: Job) -> dict:
 @app.get("/api/health")
 def health():
     redis_conn.ping()
-    return {"status": "ok", "queued": len(download_queue)}
+    return {"status": "ok", "queued": len(download_queue), "workers": worker_count()}
 
 
 # Sync handlers run in FastAPI's threadpool, so blocking yt-dlp/Redis calls
@@ -130,6 +135,9 @@ def create_job(req: JobRequest, request: Request):
     rate_limit(request, "jobs", config.JOBS_PER_HOUR_PER_IP, 3600)
     if len(download_queue) >= config.MAX_QUEUE_LENGTH:
         raise HTTPException(status_code=503, detail="Server is busy. Try again shortly.")
+    if worker_count() == 0:
+        # Otherwise the job would sit in the queue forever.
+        raise HTTPException(status_code=503, detail="Downloads are temporarily unavailable. Try again shortly.")
 
     job = download_queue.enqueue(
         tasks.download_job,

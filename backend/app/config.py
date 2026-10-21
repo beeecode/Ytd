@@ -8,8 +8,13 @@ def _int(name: str, default: int) -> int:
     return int(os.environ.get(name, default))
 
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-DOWNLOAD_DIR = Path(os.environ.get("DOWNLOAD_DIR", "downloads")).resolve()
+# Docker Compose sets DB 0. Locally run API/workers default to DB 1 so they
+# never pick up (or hand off) jobs from the Docker stack: the two don't share
+# a downloads folder, so a file written by one is invisible to the other.
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/1")
+DOWNLOAD_DIR = Path(
+    os.environ.get("DOWNLOAD_DIR", Path(__file__).resolve().parent.parent / "downloads")
+).resolve()
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
 
 # Abuse limits for a public deployment.

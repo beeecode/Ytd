@@ -8,6 +8,9 @@ from . import config, ytdl
 
 # Minimum seconds between progress writes to Redis.
 PROGRESS_INTERVAL = 0.5
+# Retries for transient YouTube errors.
+ATTEMPTS = 2
+RETRY_DELAY = 3
 
 
 def download_job(url: str, kind: str, quality: int | None, audio_format: str) -> dict:
@@ -24,21 +27,26 @@ def download_job(url: str, kind: str, quality: int | None, audio_format: str) ->
             job.save_meta()
             last_write = now
 
-    try:
-        path = ytdl.download(
-            url,
-            config.DOWNLOAD_DIR / job.id,
-            kind=kind,
-            quality=quality,
-            audio_format=audio_format,
-            max_duration=config.MAX_DURATION_SECONDS,
-            max_filesize=config.MAX_FILESIZE_BYTES,
-            on_progress=on_progress,
-        )
-    except (ytdl.ExtractionError, ytdl.InvalidUrlError) as e:
-        # User-facing message; the API reads it from meta.
-        job.meta["error"] = str(e)
-        job.save_meta()
-        raise
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            path = ytdl.download(
+                url,
+                config.DOWNLOAD_DIR / job.id,
+                kind=kind,
+                quality=quality,
+                audio_format=audio_format,
+                max_duration=config.MAX_DURATION_SECONDS,
+                max_filesize=config.MAX_FILESIZE_BYTES,
+                on_progress=on_progress,
+            )
+            break
+        except ytdl.ExtractionError as e:
+            if e.transient and attempt < ATTEMPTS:
+                time.sleep(RETRY_DELAY)
+                continue
+            # User-facing message; the API reads it from meta.
+            job.meta["error"] = str(e)
+            job.save_meta()
+            raise
 
     return {"filename": path.name, "filesize": path.stat().st_size}

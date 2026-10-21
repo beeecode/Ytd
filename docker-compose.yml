@@ -1,41 +1,77 @@
+# Production stack. Only Caddy is exposed (ports 80/443); the API is reachable
+# only through Caddy. Redis is bound to 127.0.0.1 so a locally run API/worker
+# can use it during development.
+
+x-backend: &backend
+  build: ./backend
+  env_file:
+    - path: .env
+      required: false  # all settings have defaults
+  restart: unless-stopped
+  volumes:
+    - downloads:/data/downloads
+  depends_on:
+    redis:
+      condition: service_healthy
+
 services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - frontend
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+
+  api:
+    <<: *backend
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      # Trust X-Forwarded-For from Caddy so rate limits see real client IPs.
+      # Safe because the API port is not published; only Caddy can reach it.
+      FORWARDED_ALLOW_IPS: "*"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    # Lets RQ finish the current download on shutdown (warm shutdown).
+    stop_grace_period: 2m
+    deploy:
+      replicas: 2
+
   redis:
     image: redis:7.4-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
-    ports:
-      - "127.0.0.1:6379:6379"  # for running the API/worker outside Docker
-
-  api:
-    build: ./backend
-    env_file: .env
-    environment:
-      REDIS_URL: redis://redis:6379/0
-    ports:
-      - "8000:8000"
-    volumes:
-      - downloads:/data/downloads
-    depends_on:
-      redis:
-        condition: service_healthy
-
-  worker:
-    build: ./backend
-    command: ["python", "-m", "app.worker"]
-    env_file: .env
-    environment:
-      REDIS_URL: redis://redis:6379/0
-    volumes:
-      - downloads:/data/downloads
-    depends_on:
-      redis:
-        condition: service_healthy
-    deploy:
-      replicas: 2
 
 volumes:
   downloads:
+  caddy_data:
+  caddy_config:

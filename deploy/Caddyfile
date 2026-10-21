@@ -1,0 +1,30 @@
+# DOMAIN comes from .env. "localhost" gets a locally trusted certificate;
+# a real domain gets a Let's Encrypt certificate automatically.
+{$DOMAIN:localhost} {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	handle /api/* {
+		# API requests are small JSON bodies.
+		request_body {
+			max_size 16KB
+		}
+		# No compression here: keeps SSE progress streams unbuffered.
+		reverse_proxy api:8000
+	}
+
+	handle {
+		encode zstd gzip
+		reverse_proxy frontend:3000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
